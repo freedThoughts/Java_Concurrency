@@ -3,34 +3,53 @@ package util.concurrent.lock;
 import java.util.LinkedList;
 import java.util.Queue;
 
-// THIS WOULD NOT  -- DON'T USE
 public class LockWithFairness {
     private boolean isLocked = false;
     private Thread lockedBy = null;
-    private int counter = 0;
-    private Queue<Thread> waitingThreads = new LinkedList<>();
+    private Queue<LockObject> waitingThreads = new LinkedList<LockObject>();
 
-    public synchronized void lock() throws InterruptedException{
-        while (isLocked && lockedBy != Thread.currentThread()) {
-            if (!waitingThreads.contains(Thread.currentThread()))
-                waitingThreads.offer(Thread.currentThread());
-            this.wait();
+    public void lock() throws InterruptedException {
+        LockObject lockObject = new LockObject();
+        boolean isLockedForThisThread = true;
+        synchronized (this) {
+            waitingThreads.offer(lockObject);
         }
 
-        counter++;
-        isLocked = true;
-        lockedBy = Thread.currentThread();
+        while (isLockedForThisThread) {
+            synchronized (this) {
+                isLockedForThisThread = isLocked || waitingThreads.peek() != lockObject;
+                if (!isLockedForThisThread) {
+                    isLocked = true;
+                    waitingThreads.remove(lockObject);
+                    lockedBy = Thread.currentThread();
+                } else
+                    lockObject.lock();
+            }
+        }
     }
 
-    public synchronized void unlock() throws InterruptedException {
-        if (Thread.currentThread() != lockedBy)
-            throw new IllegalMonitorStateException("The calling thread is not locked ");
+    public synchronized void unLock() throws InterruptedException {
+        if (lockedBy != Thread.currentThread()) throw new IllegalMonitorStateException("The current Thread is not locked");
+        isLocked = false;
+        lockedBy = null;
+        if (waitingThreads.size() > 0)
+            waitingThreads.poll().unLock();
+    }
 
-        counter--;
-        if (counter == 0) {
+
+
+    private static class LockObject {
+        private boolean isLocked = false;
+        private synchronized void lock() throws InterruptedException{
+            while (isLocked)
+                this.wait();
+            this.isLocked = true;
+        }
+
+        private synchronized void unLock() throws InterruptedException {
+            if (!isLocked) throw new IllegalMonitorStateException("LockObject is not locked");
             isLocked = false;
-            lockedBy = null;
-            //waitingThreads.poll().notify();
+            this.notify();
         }
     }
 }
